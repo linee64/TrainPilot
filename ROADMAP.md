@@ -9,19 +9,19 @@
 ---
 
 ## Этап 0. Подготовка
-- [ ] Создать репо `trainpilot` на GitHub (MIT license)
+- [x] Создать репо `trainpilot` на GitHub (MIT license)
 - [x] Структура папок (см. ARCHITECTURE.md)
 - [x] `pyproject.toml`, `pip install -e .` работает
 - [x] Положить 3 референса в `examples/`
-- [ ] Аккаунты Colab и Kaggle, проверить что T4 доступна
+- [x] Аккаунты Colab и Kaggle, проверить что T4 доступна
 
 **Готово, когда:** `import trainpilot` работает в Colab.
 
 ## Этап 1. Замер шага
-- [ ] `measure.py`: время каждого шага с `torch.cuda.synchronize()`
-- [ ] Прогрев 10 шагов не считается, мерим следующие 30
-- [ ] Примеров в секунду, пиковая память (`torch.cuda.max_memory_allocated`)
-- [ ] Медиана, а не среднее (выбросы)
+- [x] `measure.py`: время каждого шага с `torch.cuda.synchronize()`
+- [x] Прогрев 10 шагов не считается, мерим следующие 30
+- [x] Примеров в секунду, пиковая память (`torch.cuda.max_memory_allocated`)
+- [x] Медиана, а не среднее (выбросы)
 
 **Проверка:** запустить на ResNet-50, сравнить время шага с ручным замером через `time.time()`. Разница < 5%.
 
