@@ -88,7 +88,7 @@ def test_cpu_median_matches_manual_time_time() -> None:
     def step() -> int:
         value = torch.randn(512, 512)
         product = value
-        for _ in range(25):
+        for _ in range(80):
             product = product @ value
         return 512
 
