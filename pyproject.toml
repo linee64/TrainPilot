@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trainpilot"
-version = "0.0.1"
+version = "0.1.0"
+readme = "README.md"
 description = "Short-run diagnosis of PyTorch training: whether the GPU is computing or waiting for data."
 requires-python = ">=3.10"
 license = {text = "MIT"}

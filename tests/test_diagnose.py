@@ -13,6 +13,7 @@ def test_wait_above_30_percent_means_waiting_for_data() -> None:
     diagnosis = diagnose(_measured(0.31))
 
     assert diagnosis.verdict == WAITING_FOR_DATA
+    assert "31.0%" in diagnosis.reason
     assert "waiting for the next batch" in diagnosis.reason
     assert "short run" in diagnosis.reason
 

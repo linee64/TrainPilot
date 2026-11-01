@@ -54,7 +54,7 @@ Goal of v0.1: honest diagnosis and an honest measurement. Not "speed up any mode
 3. On a GPU, run TrainPilot on all 3 examples and compare with `TESTING.md`:
    - 01 CIFAR → "waiting for data"
    - 02 TinyStories → AMP gives a clear speedup, loss OK
-   - 03 ResNet-50 → "GPU busy", little to gain
+   - 03 ResNet-50 → "GPU busy". On T4, FP16 still gave a clear speedup and the loss stayed OK, so recommend mixed precision. Say "little to gain" only when that short test itself shows no clear speedup.
 4. Sanity-check one timing by hand with `time.time()` + `synchronize()` (within ~5%).
 
 ## Style

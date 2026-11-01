@@ -172,9 +172,9 @@ def assess_losses(
     if not baseline_losses or not amp_losses:
         return False, "No measured losses."
     if any(not math.isfinite(value) for value in baseline_losses):
-        return False, "NaN in the baseline loss."
+        return False, "Non-finite value in the baseline loss."
     if any(not math.isfinite(value) for value in amp_losses):
-        return False, "NaN in the mixed-precision loss."
+        return False, "Non-finite value in the mixed-precision loss."
     baseline_median = float(statistics.median(baseline_losses))
     amp_median = float(statistics.median(amp_losses))
     limit = max(baseline_median * LOSS_DIVERGENCE_FACTOR, baseline_median + LOSS_DIVERGENCE_MARGIN)
@@ -238,7 +238,7 @@ def _execute(
             _check_scalar_loss(loss)
             loss.backward()
             optimizer.step()
-        losses.append(float(loss.detach()))
+        losses.append(float(loss.detach().float().cpu()))
         return _examples_in_batch(batch)
 
     measurement = measure_steps(step, warmup=warmup, steps=steps)

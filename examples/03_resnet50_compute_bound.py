@@ -1,7 +1,7 @@
 """Reference 3: GPU already busy (compute-bound).
 ResNet-50 at 224x224 on synthetic in-memory data, so data loading costs nothing.
-Expected TrainPilot finding: GPU is already near 100%; little to gain except maybe mixed precision.
-Checks that TrainPilot stays honest when there is nothing to speed up."""
+Expected TrainPilot finding: the GPU is busy. Mixed precision can still speed the
+math when the short test shows it and the loss stays healthy."""
 import time, torch, torch.nn as nn, torchvision
 
 device = "cuda" if torch.cuda.is_available() else "cpu"

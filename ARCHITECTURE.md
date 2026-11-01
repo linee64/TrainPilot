@@ -3,7 +3,7 @@
 ```
 trainpilot/
 ├── trainpilot/
-│   ├── __init__.py       # публичный API: Pilot
+│   ├── __init__.py       # публичный API без Pilot
 │   ├── measure.py        # замер шагов, памяти, ожидания данных
 │   ├── diagnose.py       # правила: «ждёт данные» / «занят»
 │   ├── experiments.py    # прогон с AMP (и опционально torch.compile)
@@ -21,18 +21,15 @@ trainpilot/
 └── LICENSE
 ```
 
-## Как подключается (идея API)
+## Как подключается
 ```python
-from trainpilot import Pilot
-pilot = Pilot(model, optimizer, loss_fn, loader)
-pilot.run()          # замер + эксперимент + отчёт
+from trainpilot import compare_mixed_precision, diagnose, measure_batches, render_report
+
+diagnosis = diagnose(measure_batches(loader, step))
+experiment = compare_mixed_precision(model, optimizer, loader, loss_fn, seed=0)
+print(render_report(diagnosis, experiment))
 ```
-Альтернатива: обёртка шага
-```python
-for x, y in pilot.wrap(loader):   # мерит ожидание данных
-    with pilot.step():            # мерит вычисления
-        ...
-```
+`Pilot` в этой версии нет. `trainpilot run train.py` печатает то, что скрипт уже записал, и сам файл не меняет.
 
 ## Поток данных
 1. `measure` → сырые замеры (время шагов, ожидание, память)

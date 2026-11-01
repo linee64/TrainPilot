@@ -70,7 +70,7 @@ def render_report(
 
     lines: list[str] = ["# TrainPilot", ""]
     lines.extend(_finding_lines(diagnosis, measurement))
-    lines.extend(_tried_lines(experiment))
+    lines.extend(_tried_lines(diagnosis, experiment))
     lines.extend(_memory_lines(experiment, measurement))
     lines.append(_FULL_RUN_NOTE)
     lines.append("")
@@ -152,7 +152,7 @@ def _finding_lines(diagnosis: Any | None, measurement: Any | None) -> list[str]:
     return lines
 
 
-def _tried_lines(experiment: Any | None) -> list[str]:
+def _tried_lines(diagnosis: Any | None, experiment: Any | None) -> list[str]:
     if experiment is None:
         return []
     if getattr(experiment, "skipped_reason", None):
@@ -160,25 +160,41 @@ def _tried_lines(experiment: Any | None) -> list[str]:
     baseline = getattr(experiment, "baseline_median_step_seconds", None)
     faster = getattr(experiment, "amp_median_step_seconds", None)
     speedup = getattr(experiment, "median_step_speedup", None)
+    waiting = getattr(diagnosis, "verdict", None) == "waiting for data"
     lines = ["## What we tried", ""]
     if baseline is None or faster is None or speedup is None:
         lines.append("Mixed precision did not produce a step time on this short test.")
     elif speedup >= 1.1 and getattr(experiment, "loss_ok", False):
+        subject = "the math" if waiting else "a typical step"
         lines.append(
-            "Mixed precision (FP16) made a typical step faster on this short test: "
+            "Mixed precision (FP16) made "
+            f"{subject} faster on this short test: "
             f"{_format_seconds(baseline)} down to {_format_seconds(faster)}. "
             f"That is about {_format_ratio(speedup)} times faster."
         )
+        if waiting:
+            lines.append(
+                "Most of the step is still spent waiting for the next batch, "
+                "so the change to paste is the data loader."
+            )
+        elif getattr(diagnosis, "verdict", None) == "gpu busy":
+            lines.append(
+                "A busy GPU can still be busy with slow math. "
+                "This short test found a faster step, so that is the change to paste."
+            )
     elif speedup >= 1.1:
         lines.append(
             "Mixed precision (FP16) made a typical step faster on this short test: "
             f"{_format_seconds(baseline)} down to {_format_seconds(faster)}. "
             "The loss did not stay healthy, so this is not a change to keep."
         )
+        if waiting:
+            lines.append("The change to paste is still the data loader.")
     else:
         lines.append(
             "Mixed precision (FP16) did not make a typical step clearly faster "
-            f"on this short test: {_format_seconds(baseline)} and {_format_seconds(faster)}."
+            f"on this short test: {_format_seconds(baseline)} and {_format_seconds(faster)}. "
+            "Little is left to speed up from this change."
         )
     loss_note = getattr(experiment, "loss_note", "")
     if loss_note:

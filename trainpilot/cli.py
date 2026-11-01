@@ -40,6 +40,9 @@ def main(argv: list[str] | None = None) -> None:
         _emit_report()
         if exc.code not in (0, None):
             raise
+    except Exception:
+        _emit_report()
+        raise
     else:
         _emit_report()
     if script.read_bytes() != before:

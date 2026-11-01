@@ -25,7 +25,7 @@ EXPECTED = {
 }
 
 
-def main() -> int:
+def main(only: str | None = None) -> int:
     if not torch.cuda.is_available():
         print("GPU not found")
         return 0
@@ -39,14 +39,23 @@ def main() -> int:
         flush=True,
     )
     failures: list[str] = []
-    for name, runner in (
+    runners = (
         ("01 CIFAR", run_cifar),
         ("02 TinyStories", run_tinystories),
         ("03 ResNet-50", run_resnet50),
-    ):
+    )
+    if only is not None:
+        runners = tuple(item for item in runners if item[0] == only)
+        if not runners:
+            print(f"Unknown example: {only}")
+            return 1
+    for name, runner in runners:
         print(f"\n== {name} ==", flush=True)
         try:
-            _report(name, *runner())
+            diagnosis, experiment = runner()
+            _report(name, diagnosis, experiment)
+            if not _verdict_ok(name, diagnosis.verdict):
+                failures.append(name)
         except Exception as exc:
             failures.append(name)
             print(f"FAILED {name}: {exc}", flush=True)
@@ -76,7 +85,6 @@ def run_cifar() -> tuple[object, object]:
     loader = torch.utils.data.DataLoader(
         dataset, batch_size=128, shuffle=True, num_workers=0, pin_memory=False
     )
-    batches = _take(loader, WINDOW)
     model = nn.Sequential(
         nn.Conv2d(3, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2),
         nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2),
@@ -86,7 +94,21 @@ def run_cifar() -> tuple[object, object]:
     model.train()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.05, momentum=0.9)
     loss_fn = nn.CrossEntropyLoss()
-    return _check(model, optimizer, batches, device, loss_fn)
+
+    def loss_from_batch(candidate: nn.Module, batch) -> torch.Tensor:
+        inputs, targets = batch
+        inputs = inputs.to(device)
+        targets = targets.to(device)
+        return loss_fn(candidate(inputs), targets)
+
+    # Time the loader itself. Prefetched batches hide the wait and look GPU-busy.
+    diagnosis = diagnose(
+        measure_batches(loader, lambda batch: _train_step(model, optimizer, batch, loss_from_batch))
+    )
+    experiment = compare_mixed_precision(
+        model, optimizer, loader, loss_from_batch, seed=0, try_compile=False
+    )
+    return diagnosis, experiment
 
 
 def run_tinystories() -> tuple[object, object]:
@@ -206,6 +228,17 @@ def _report(name: str, diagnosis, experiment) -> None:
     )
     if experiment.loss_note:
         print(experiment.loss_note, flush=True)
+    if diagnosis.wait_fraction is not None:
+        print(f"wait_percent: {diagnosis.wait_fraction * 100:.1f}", flush=True)
+    if verdict == "waiting for data":
+        print("step times above are the math only; most of the step is data wait", flush=True)
+    reason = getattr(diagnosis, "reason", "")
+    if reason:
+        print(reason, flush=True)
+
+
+def _verdict_ok(name: str, verdict: str) -> bool:
+    return verdict == EXPECTED[name]
 
 
 def _recommendation(verdict: str, experiment) -> str:
@@ -221,15 +254,6 @@ def _ms(seconds: float | None) -> str:
     if seconds is None:
         return ""
     return f"{seconds * 1000:.1f}"
-
-
-def _take(loader, count: int) -> list:
-    batches = []
-    for batch in loader:
-        batches.append(batch)
-        if len(batches) == count:
-            return batches
-    raise RuntimeError(f"Not enough batches: needed {count}, got {len(batches)}.")
 
 
 def _data_root() -> Path:

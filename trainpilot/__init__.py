@@ -9,7 +9,7 @@ from trainpilot.experiments import ExperimentResult, compare_mixed_precision
 from trainpilot.measure import StepMeasurement, measure_batches, measure_steps
 from trainpilot.report import render_report
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 __all__ = [
     "Diagnosis",

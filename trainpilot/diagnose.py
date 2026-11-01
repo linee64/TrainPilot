@@ -78,10 +78,10 @@ def _reason(verdict: str, wait_fraction: float) -> str:
     percent = wait_fraction * 100
     if verdict == WAITING_FOR_DATA:
         return (
-            f"On this short run, {percent:.0f}% of a typical step is spent waiting "
+            f"On this short run, {percent:.1f}% of a typical step is spent waiting "
             "for the next batch. The GPU is idle while that happens."
         )
     return (
-        f"On this short run, {percent:.0f}% of a typical step is spent waiting "
+        f"On this short run, {percent:.1f}% of a typical step is spent waiting "
         "for the next batch. The GPU is busy computing the rest."
     )

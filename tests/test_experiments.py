@@ -125,8 +125,8 @@ def test_loss_check_rejects_nan_and_divergence_only() -> None:
     ok, note = assess_losses([1.0, 1.0, 1.0], [12.0, 12.0, 12.0])
     assert ok is False
     assert note == "Mixed-precision loss diverged."
-    assert assess_losses([1.0, float("nan"), 1.0], [1.0, 1.0, 1.0])[1] == "NaN in the baseline loss."
-    assert assess_losses([1.0, 1.0, 1.0], [1.0, float("inf"), 1.0])[1] == "NaN in the mixed-precision loss."
+    assert assess_losses([1.0, float("nan"), 1.0], [1.0, 1.0, 1.0])[1] == "Non-finite value in the baseline loss."
+    assert assess_losses([1.0, 1.0, 1.0], [1.0, float("inf"), 1.0])[1] == "Non-finite value in the mixed-precision loss."
 
 
 def test_amp_dtype_is_fp16_even_on_t4() -> None:
