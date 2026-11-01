@@ -1,12 +1,13 @@
 """TrainPilot public API.
 
-Step timing, the waiting-versus-busy diagnosis, and the mixed-precision
-comparison are available. ``Pilot`` is not implemented yet.
+Step timing, diagnosis, the mixed-precision comparison, and the one-page
+report are available. ``Pilot`` is not implemented yet.
 """
 
 from trainpilot.diagnose import Diagnosis, diagnose
 from trainpilot.experiments import ExperimentResult, compare_mixed_precision
 from trainpilot.measure import StepMeasurement, measure_batches, measure_steps
+from trainpilot.report import render_report
 
 __version__ = "0.0.1"
 
@@ -18,5 +19,6 @@ __all__ = [
     "diagnose",
     "measure_batches",
     "measure_steps",
+    "render_report",
     "__version__",
 ]

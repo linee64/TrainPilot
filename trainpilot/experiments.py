@@ -79,9 +79,9 @@ def compare_mixed_precision(
     """
 
     if not torch.cuda.is_available():
-        return _skipped(SKIPPED_NO_GPU, status=GPU_NOT_FOUND, seed=seed, warmup=warmup, steps=steps)
+        return _remember(_skipped(SKIPPED_NO_GPU, status=GPU_NOT_FOUND, seed=seed, warmup=warmup, steps=steps))
     if _parameter_device(model) != "cuda":
-        return _skipped(SKIPPED_NOT_CUDA_MODEL, seed=seed, warmup=warmup, steps=steps)
+        return _remember(_skipped(SKIPPED_NOT_CUDA_MODEL, seed=seed, warmup=warmup, steps=steps))
 
     window = _collect_batches(batches, warmup + steps)
     baseline_model, baseline_optimizer = _clone_model_and_optimizer(model, optimizer)
@@ -125,7 +125,7 @@ def compare_mixed_precision(
             steps=steps,
         )
 
-    return ExperimentResult(
+    return _remember(ExperimentResult(
         status="ok",
         skipped_reason=None,
         baseline_median_step_seconds=baseline.measurement.median_step_seconds,
@@ -149,7 +149,14 @@ def compare_mixed_precision(
         amp_examples_per_second=amp.measurement.examples_per_second,
         baseline_peak_memory_bytes=baseline.measurement.peak_memory_bytes,
         amp_peak_memory_bytes=amp.measurement.peak_memory_bytes,
-    )
+    ))
+
+
+def _remember(result: ExperimentResult) -> ExperimentResult:
+    from trainpilot.report import record
+
+    record(experiment=result)
+    return result
 
 
 def assess_losses(

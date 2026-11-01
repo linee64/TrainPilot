@@ -31,26 +31,39 @@ def diagnose(measurement: StepMeasurement) -> Diagnosis:
     """Classify a short run that already split data wait from compute."""
 
     if measurement.status == GPU_NOT_FOUND:
-        return Diagnosis(
-            verdict=GPU_NOT_FOUND,
-            reason=(
-                "GPU not found. This short run cannot tell whether a GPU would "
-                "be waiting for data or busy computing."
-            ),
-            wait_fraction=measurement.wait_fraction,
+        return _remember(
+            Diagnosis(
+                verdict=GPU_NOT_FOUND,
+                reason=(
+                    "GPU not found. This short run cannot tell whether a GPU would "
+                    "be waiting for data or busy computing."
+                ),
+                wait_fraction=measurement.wait_fraction,
+            )
         )
     if measurement.wait_fraction is None:
-        return Diagnosis(
-            verdict=SKIPPED,
-            reason="Skipped because data-wait time was not measured separately.",
-            wait_fraction=None,
+        return _remember(
+            Diagnosis(
+                verdict=SKIPPED,
+                reason="Skipped because data-wait time was not measured separately.",
+                wait_fraction=None,
+            )
         )
     verdict = classify_wait_fraction(measurement.wait_fraction)
-    return Diagnosis(
-        verdict=verdict,
-        reason=_reason(verdict, measurement.wait_fraction),
-        wait_fraction=measurement.wait_fraction,
+    return _remember(
+        Diagnosis(
+            verdict=verdict,
+            reason=_reason(verdict, measurement.wait_fraction),
+            wait_fraction=measurement.wait_fraction,
+        )
     )
+
+
+def _remember(diagnosis: Diagnosis) -> Diagnosis:
+    from trainpilot.report import record
+
+    record(diagnosis=diagnosis)
+    return diagnosis
 
 
 def classify_wait_fraction(wait_fraction: float) -> str:
