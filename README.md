@@ -6,6 +6,8 @@
 
 TrainPilot finds out why your PyTorch training is slow on free Colab/Kaggle GPUs and gives you a ready-to-paste fix.
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/linee64/TrainPilot/blob/main/notebooks/trainpilot_quickstart.ipynb)
+
 ## Why
 
 On a free T4, a training step is often slow for one of two reasons: the GPU is waiting for the next batch, or it is busy doing heavy math. Students usually cannot tell which, so they turn on mixed precision or `torch.compile` and hope. TrainPilot measures a short run, names the cause, and only suggests a change that made *this* short test faster without blowing up the loss.
@@ -23,17 +25,54 @@ Warmup steps (default 10) are dropped. Stats use the median of the next 30 steps
 ## Quick start
 
 ```bash
-pip install trainpilot
-trainpilot run train.py
-trainpilot run train.py --compile
+pip install git+https://github.com/linee64/TrainPilot.git
 ```
 
+Your script must call `measure_batches` and `compare_mixed_precision`; `trainpilot run` runs it and saves the report to `trainpilot-report.md`.
+
 ```python
+# train.py
+import torch
+from torch import nn
 from trainpilot import compare_mixed_precision, diagnose, measure_batches, render_report
 
-diagnosis = diagnose(measure_batches(loader, step))
-experiment = compare_mixed_precision(model, optimizer, loader, loss_fn, seed=0)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+torch.manual_seed(0)
+
+def make_loader():
+    data = torch.utils.data.TensorDataset(
+        torch.randn(1280, 3, 32, 32),
+        torch.randint(0, 10, (1280,)),
+    )
+    return torch.utils.data.DataLoader(data, batch_size=32, num_workers=0)
+
+model = nn.Sequential(
+    nn.Conv2d(3, 32, 3, padding=1), nn.ReLU(),
+    nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Linear(32, 10),
+).to(device)
+optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
+ce = nn.CrossEntropyLoss()
+
+def step(batch):
+    x, y = batch[0].to(device), batch[1].to(device)
+    optimizer.zero_grad(set_to_none=True)
+    loss = ce(model(x), y)
+    loss.backward()
+    optimizer.step()
+    return int(x.shape[0])
+
+def loss_fn(candidate, batch):
+    x, y = batch[0].to(device), batch[1].to(device)
+    return ce(candidate(x), y)
+
+diagnosis = diagnose(measure_batches(make_loader(), step))
+experiment = compare_mixed_precision(model, optimizer, make_loader(), loss_fn, seed=0)
 print(render_report(diagnosis, experiment))
+```
+
+```bash
+trainpilot run train.py
+trainpilot run train.py --compile
 ```
 
 `step(batch)` runs one training step and returns the example count. `loss_fn(model, batch)` must use the model it is given and return a scalar loss. `--compile` is passed through to `try_compile`. If the script already prints `render_report`, the CLI does not print it again.
@@ -67,6 +106,8 @@ These numbers are from a short test. A full training run is only an estimate.
 
 ## Real results on a T4 (Colab)
 
+![FP32 vs AMP median step time on a Tesla T4](docs/t4_results.png)
+
 | Workload | Verdict | Data wait | FP32 step | AMP step | Speedup |
 |---|---|---|---|---|---|
 | CIFAR-10 ResNet-18 | GPU busy | 0.3% | 116.8 ms | 46.8 ms | 2.5x |
@@ -96,6 +137,15 @@ On notebooks it never suggests more than two DataLoader workers. If `num_workers
 ## Roadmap
 
 v0.1 is diagnosis, mixed precision, and optional `torch.compile`. Not in this version: auto-patching, batch-size search, multi-GPU.
+
+## Contributing
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+GPU tests skip when CUDA is not available. Keep the public API (`measure_batches`, `diagnose`, `compare_mixed_precision`, `render_report`) unless a change is required. Do not edit the reference scripts in `examples/`.
 
 ## License
 

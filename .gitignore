@@ -30,6 +30,13 @@ ENV/
 .idea/
 .vscode/
 
+# Notebooks
+.ipynb_checkpoints/
+
+# TrainPilot output and downloaded example data
+trainpilot-report.md
+data/
+
 # OS
 .DS_Store
 Thumbs.db
