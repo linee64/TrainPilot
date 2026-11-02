@@ -21,6 +21,13 @@ _SKIPPED_NO_DIAGNOSIS = "Skipped because data-wait time was not measured separat
 _SKIPPED_NO_EXPERIMENT = "Skipped because mixed precision was not tried."
 _SKIPPED_NO_PASTE = "Skipped because there is no safe change to paste."
 _SKIPPED_NO_GPU = "Skipped because GPU not found."
+_NOTEBOOK_WORKER_CAP = 2
+_LOADER_ALREADY_SET = (
+    "Your DataLoader already uses these settings. "
+    "Colab and Kaggle give you only two CPU cores, so more workers will not help. "
+    "Make loading cheaper: smaller images, lighter augmentations, "
+    "or preprocess the data ahead of time."
+)
 
 
 @dataclass
@@ -98,15 +105,7 @@ def code_snippet(diagnosis: Any | None, experiment: Any | None) -> str | None:
     """Return 3–5 lines to paste, or None when no change is safe."""
 
     if diagnosis is not None and getattr(diagnosis, "verdict", None) == "waiting for data":
-        return "\n".join(
-            [
-                "loader = DataLoader(",
-                "    dataset,",
-                "    num_workers=2,",
-                "    pin_memory=True,",
-                ")",
-            ]
-        )
+        return _loader_snippet(diagnosis)
     if _amp_is_safe(experiment):
         return "\n".join(
             [
@@ -118,6 +117,38 @@ def code_snippet(diagnosis: Any | None, experiment: Any | None) -> str | None:
             ]
         )
     return None
+
+
+def _loader_already_tuned(diagnosis: Any | None) -> bool:
+    """True when the loader already has the notebook-safe worker cap and pin_memory."""
+
+    if diagnosis is None:
+        return False
+    workers = getattr(diagnosis, "loader_num_workers", None)
+    pin_memory = getattr(diagnosis, "loader_pin_memory", None)
+    return (
+        workers is not None
+        and workers >= _NOTEBOOK_WORKER_CAP
+        and pin_memory is True
+    )
+
+
+def _loader_snippet(diagnosis: Any) -> str | None:
+    """Suggest only DataLoader knobs that are not already set. Never above 2 workers."""
+
+    if _loader_already_tuned(diagnosis):
+        return None
+    workers = getattr(diagnosis, "loader_num_workers", None)
+    pin_memory = getattr(diagnosis, "loader_pin_memory", None)
+    workers_ok = workers is not None and workers >= _NOTEBOOK_WORKER_CAP
+    pin_ok = pin_memory is True
+    lines = ["loader = DataLoader(", "    dataset,"]
+    if not workers_ok:
+        lines.append(f"    num_workers={_NOTEBOOK_WORKER_CAP},")
+    if not pin_ok:
+        lines.append("    pin_memory=True,")
+    lines.append(")")
+    return "\n".join(lines)
 
 
 def _finding_lines(diagnosis: Any | None, measurement: Any | None) -> list[str]:
@@ -148,6 +179,9 @@ def _finding_lines(diagnosis: Any | None, measurement: Any | None) -> list[str]:
     if reason:
         lines.append("")
         lines.append(reason)
+    if verdict == "waiting for data" and _loader_already_tuned(diagnosis):
+        lines.append("")
+        lines.append(_LOADER_ALREADY_SET)
     lines.append("")
     return lines
 
@@ -173,10 +207,7 @@ def _tried_lines(diagnosis: Any | None, experiment: Any | None) -> list[str]:
             f"That is about {_format_ratio(speedup)} times faster."
         )
         if waiting:
-            lines.append(
-                "Most of the step is still spent waiting for the next batch, "
-                "so the change to paste is the data loader."
-            )
+            lines.append(_waiting_followup(diagnosis))
         elif getattr(diagnosis, "verdict", None) == "gpu busy":
             lines.append(
                 "A busy GPU can still be busy with slow math. "
@@ -189,7 +220,7 @@ def _tried_lines(diagnosis: Any | None, experiment: Any | None) -> list[str]:
             "The loss did not stay healthy, so this is not a change to keep."
         )
         if waiting:
-            lines.append("The change to paste is still the data loader.")
+            lines.append(_waiting_followup(diagnosis))
     else:
         lines.append(
             "Mixed precision (FP16) did not make a typical step clearly faster "
@@ -204,12 +235,29 @@ def _tried_lines(diagnosis: Any | None, experiment: Any | None) -> list[str]:
     compile_note = getattr(experiment, "compile_note", None)
     compile_seconds = getattr(experiment, "compile_seconds", None)
     compile_step = getattr(experiment, "compile_median_step_seconds", None)
+    amp_step = getattr(experiment, "amp_median_step_seconds", None)
     if compile_seconds is not None and compile_step is not None:
-        lines.append(
-            f"Preparing the compiled model took {_format_seconds(compile_seconds)}. "
-            f"After that, a typical step took {_format_seconds(compile_step)}. "
-            "The prepare time is separate from the step time."
-        )
+        if amp_step is not None:
+            lines.append(
+                f"Preparing the compiled model took {_format_seconds(compile_seconds)}. "
+                f"After that, a typical step took {_format_seconds(compile_step)}, "
+                f"compared with {_format_seconds(amp_step)} for mixed precision without compile. "
+                "The prepare time is separate from the step time."
+            )
+        else:
+            lines.append(
+                f"Preparing the compiled model took {_format_seconds(compile_seconds)}. "
+                f"After that, a typical step took {_format_seconds(compile_step)}. "
+                "The prepare time is separate from the step time."
+            )
+        if compile_note and not str(compile_note).startswith("Skipped because"):
+            lines.append(compile_note)
+        compile_loss_ok = getattr(experiment, "compile_loss_ok", None)
+        if compile_loss_ok:
+            lines.append(
+                "On the compile run, loss did not diverge and there are no NaN. "
+                "That only means the short test did not blow up."
+            )
     lines.append("")
     return lines
 
@@ -246,6 +294,18 @@ def _skipped_lines(diagnosis: Any | None, experiment: Any | None) -> list[str]:
             notes.append(compile_note)
     notes.append(_SKIPPED_BATCH_SIZE)
     return _unique(notes)
+
+
+def _waiting_followup(diagnosis: Any | None) -> str:
+    if _loader_already_tuned(diagnosis):
+        return (
+            "Most of the step is still spent waiting for the next batch. "
+            + _LOADER_ALREADY_SET
+        )
+    return (
+        "Most of the step is still spent waiting for the next batch, "
+        "so the change to paste is the data loader."
+    )
 
 
 def _amp_is_safe(experiment: Any | None) -> bool:

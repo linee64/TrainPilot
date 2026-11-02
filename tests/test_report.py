@@ -31,6 +31,8 @@ def test_waiting_report_offers_a_loader_snippet() -> None:
         verdict="waiting for data",
         reason="On this short run, 89% of a typical step is spent waiting for the next batch. The GPU is idle while that happens.",
         wait_fraction=0.894,
+        loader_num_workers=0,
+        loader_pin_memory=False,
     )
     snippet = code_snippet(diagnosis, None)
     text = render_report(diagnosis, None)
@@ -39,9 +41,45 @@ def test_waiting_report_offers_a_loader_snippet() -> None:
     assert 3 <= _line_count(snippet) <= 5
     assert "num_workers=2" in snippet
     assert "pin_memory=True" in snippet
+    assert "num_workers=3" not in snippet
     assert "The GPU is waiting for the next batch" in text
     assert "Skipped because" in text
     assert "GPU not found" in text or "mixed precision was not tried" in text
+
+
+def test_waiting_report_does_not_repeat_loader_settings_already_set() -> None:
+    diagnosis = Diagnosis(
+        verdict="waiting for data",
+        reason="On this short run, 65.0% of a typical step is spent waiting for the next batch. The GPU is idle while that happens.",
+        wait_fraction=0.65,
+        loader_num_workers=2,
+        loader_pin_memory=True,
+    )
+    snippet = code_snippet(diagnosis, None)
+    text = render_report(diagnosis, None)
+
+    assert snippet is None
+    assert "num_workers=2" not in text.split("## Code to paste")[1]
+    assert "two CPU cores" in text
+    assert "smaller images" in text
+    assert "lighter augmentations" in text
+    assert "preprocess the data" in text
+    assert "Skipped because there is no safe change to paste." in text
+
+
+def test_waiting_report_suggests_only_the_missing_loader_knob() -> None:
+    diagnosis = Diagnosis(
+        verdict="waiting for data",
+        reason="On this short run, 71.2% of a typical step is spent waiting for the next batch. The GPU is idle while that happens.",
+        wait_fraction=0.712,
+        loader_num_workers=2,
+        loader_pin_memory=False,
+    )
+    snippet = code_snippet(diagnosis, None)
+
+    assert snippet is not None
+    assert "pin_memory=True" in snippet
+    assert "num_workers" not in snippet
 
 
 def test_broken_loss_is_not_offered_as_code() -> None:
@@ -116,6 +154,63 @@ def test_speedup_without_a_diagnosis_does_not_call_the_gpu_busy() -> None:
 
     assert "3.25 times faster" in text
     assert "A busy GPU" not in text
+
+
+def test_compile_not_worth_is_plain() -> None:
+    experiment = _fast_experiment()
+    compiled = ExperimentResult(
+        status=experiment.status,
+        skipped_reason=None,
+        baseline_median_step_seconds=0.1966,
+        amp_median_step_seconds=0.0586,
+        median_step_speedup=3.13,
+        baseline_losses=experiment.baseline_losses,
+        amp_losses=experiment.amp_losses,
+        loss_ok=True,
+        loss_note=experiment.loss_note,
+        amp_dtype="float16",
+        compile_seconds=19.0,
+        compile_median_step_seconds=0.1865,
+        compile_note="torch.compile barely speeds this up on this GPU. It is not worth the wait.",
+        compile_loss_ok=True,
+        compile_speedup=1.05,
+        compile_payback_steps=None,
+    )
+    text = render_report(_busy_diagnosis(), compiled)
+
+    assert "Preparing the compiled model took 19.0 s" in text
+    assert "186.5 ms" in text
+    assert "58.6 ms" in text
+    assert "mixed precision without compile" in text
+    assert "not worth the wait" in text
+    assert "On the compile run, loss did not diverge" in text
+    assert "Skipped because torch.compile was not requested." not in text
+
+
+def test_compile_payback_is_in_the_report() -> None:
+    experiment = _fast_experiment()
+    compiled = ExperimentResult(
+        status=experiment.status,
+        skipped_reason=None,
+        baseline_median_step_seconds=experiment.baseline_median_step_seconds,
+        amp_median_step_seconds=0.0963,
+        median_step_speedup=3.22,
+        baseline_losses=experiment.baseline_losses,
+        amp_losses=experiment.amp_losses,
+        loss_ok=True,
+        loss_note=experiment.loss_note,
+        amp_dtype="float16",
+        compile_seconds=19.0,
+        compile_median_step_seconds=0.04815,
+        compile_note="torch.compile made a typical mixed-precision step faster. The extra prepare time pays for itself after about 395 steps.",
+        compile_loss_ok=True,
+        compile_speedup=2.0,
+        compile_payback_steps=395,
+    )
+    text = render_report(_busy_diagnosis(), compiled)
+
+    assert "pays for itself after about 395 steps" in text
+    assert "48.2 ms" in text or "48.1 ms" in text
 
 
 def test_empty_report_on_cpu_says_gpu_not_found() -> None:

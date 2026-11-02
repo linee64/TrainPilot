@@ -4,6 +4,7 @@ import time
 from unittest.mock import patch
 
 import pytest
+import torch
 
 from trainpilot.diagnose import GPU_BUSY, WAITING_FOR_DATA, classify_wait_fraction, diagnose
 from trainpilot.measure import GPU_NOT_FOUND, StepMeasurement, measure_batches, measure_steps
@@ -94,6 +95,20 @@ def test_whole_step_timing_is_not_classified_as_a_split() -> None:
     assert measured.wait_fraction is None
     assert diagnosis.verdict == "skipped"
     assert diagnosis.reason.startswith("Skipped because")
+
+
+def test_dataloader_settings_are_copied_into_the_diagnosis() -> None:
+    dataset = torch.utils.data.TensorDataset(torch.zeros(4, 1), torch.zeros(4, dtype=torch.long))
+    loader = torch.utils.data.DataLoader(
+        dataset, batch_size=2, num_workers=0, pin_memory=False
+    )
+    measured = measure_batches(loader, lambda _batch: 2, warmup=0, steps=2)
+    diagnosis = diagnose(measured)
+
+    assert measured.loader_num_workers == 0
+    assert measured.loader_pin_memory is False
+    assert diagnosis.loader_num_workers == 0
+    assert diagnosis.loader_pin_memory is False
 
 
 def test_loader_must_cover_warmup_and_measured_steps() -> None:

@@ -4,8 +4,10 @@ Experiments run on copies. The caller's model, optimizer, and script stay
 unchanged. Both runs see the same seed and the same batches. Mixed precision
 is FP16 with GradScaler. BF16 is never selected, including on a T4.
 
-``torch.compile`` is optional. Its one-time compile cost is timed apart from
-the median step time. A skipped check is reported with ``Skipped because``.
+``torch.compile`` is optional. When requested it runs on the mixed-precision
+copy (FP16 + GradScaler), not FP32, and is compared with the AMP step.
+Its one-time compile cost is timed apart from the median step time.
+A skipped check is reported with ``Skipped because``.
 """
 
 from __future__ import annotations
@@ -28,6 +30,12 @@ LOSS_OK_NOTE = "Loss did not diverge and there are no NaN."
 SKIPPED_NO_GPU = "Skipped because GPU not found."
 SKIPPED_NOT_CUDA_MODEL = "Skipped because the model is not on a CUDA device."
 SKIPPED_COMPILE_NOT_REQUESTED = "Skipped because torch.compile was not requested."
+COMPILE_WORTH_FACTOR = 1.1
+COMPILE_NOT_WORTH = (
+    "torch.compile barely speeds this up on this GPU. It is not worth the wait."
+)
+
+_cli_try_compile = False
 
 LossFn = Callable[[nn.Module, Any], torch.Tensor]
 
@@ -50,6 +58,10 @@ class ExperimentResult:
     compile_seconds: float | None = None
     compile_median_step_seconds: float | None = None
     compile_note: str | None = None
+    compile_losses: tuple[float, ...] = ()
+    compile_loss_ok: bool | None = None
+    compile_speedup: float | None = None
+    compile_payback_steps: int | None = None
     seed: int | None = None
     warmup_steps: int = 10
     measured_steps: int = 30
@@ -86,6 +98,7 @@ def compare_mixed_precision(
     window = _collect_batches(batches, warmup + steps)
     baseline_model, baseline_optimizer = _clone_model_and_optimizer(model, optimizer)
     amp_model, amp_optimizer = _clone_model_and_optimizer(model, optimizer)
+    want_compile = try_compile or _cli_try_compile
 
     baseline = _execute(
         baseline_model,
@@ -114,8 +127,12 @@ def compare_mixed_precision(
     compile_seconds = None
     compile_median = None
     compile_note = SKIPPED_COMPILE_NOT_REQUESTED
-    if try_compile:
-        compile_seconds, compile_median, compile_note = _try_compile(
+    compile_losses: tuple[float, ...] = ()
+    compile_loss_ok = None
+    compile_speedup = None
+    compile_payback = None
+    if want_compile:
+        compiled = _try_compile(
             model,
             optimizer,
             window,
@@ -124,6 +141,33 @@ def compare_mixed_precision(
             warmup=warmup,
             steps=steps,
         )
+        compile_seconds = compiled.prepare_seconds
+        compile_median = compiled.median_step_seconds
+        compile_losses = compiled.losses
+        compile_note = compiled.note
+        if compiled.median_step_seconds is not None:
+            compile_loss_ok, compile_loss_note = assess_losses(
+                baseline.losses,
+                compiled.losses,
+                other_name="compile",
+            )
+            compile_speedup = _speedup(
+                amp.measurement.median_step_seconds,
+                compiled.median_step_seconds,
+            )
+            compile_payback = compile_payback_steps(
+                compiled.prepare_seconds or 0.0,
+                amp.measurement.median_step_seconds,
+                compiled.median_step_seconds,
+            )
+            compile_note = compile_verdict(
+                amp.measurement.median_step_seconds,
+                compiled.median_step_seconds,
+                compiled.prepare_seconds or 0.0,
+                loss_ok=compile_loss_ok,
+            )
+            if not compile_loss_ok:
+                compile_note = f"{compile_note} {compile_loss_note}".strip()
 
     return _remember(ExperimentResult(
         status="ok",
@@ -142,6 +186,10 @@ def compare_mixed_precision(
         compile_seconds=compile_seconds,
         compile_median_step_seconds=compile_median,
         compile_note=compile_note,
+        compile_losses=compile_losses,
+        compile_loss_ok=compile_loss_ok,
+        compile_speedup=compile_speedup,
+        compile_payback_steps=compile_payback,
         seed=seed,
         warmup_steps=warmup,
         measured_steps=steps,
@@ -161,26 +209,72 @@ def _remember(result: ExperimentResult) -> ExperimentResult:
 
 def assess_losses(
     baseline_losses: Sequence[float],
-    amp_losses: Sequence[float],
+    other_losses: Sequence[float],
+    *,
+    other_name: str = "mixed-precision",
 ) -> tuple[bool, str]:
-    """Return whether mixed precision broke the short run.
+    """Return whether a compared run broke the short test.
 
-    Broken means a non-finite loss, or a mixed-precision median far above
+    Broken means a non-finite loss, or a compared median far above
     the baseline median. This does not claim the model quality is unchanged.
     """
 
-    if not baseline_losses or not amp_losses:
+    if not baseline_losses or not other_losses:
         return False, "No measured losses."
     if any(not math.isfinite(value) for value in baseline_losses):
         return False, "Non-finite value in the baseline loss."
-    if any(not math.isfinite(value) for value in amp_losses):
-        return False, "Non-finite value in the mixed-precision loss."
+    if any(not math.isfinite(value) for value in other_losses):
+        return False, f"Non-finite value in the {other_name} loss."
     baseline_median = float(statistics.median(baseline_losses))
-    amp_median = float(statistics.median(amp_losses))
+    other_median = float(statistics.median(other_losses))
     limit = max(baseline_median * LOSS_DIVERGENCE_FACTOR, baseline_median + LOSS_DIVERGENCE_MARGIN)
-    if amp_median > limit:
-        return False, "Mixed-precision loss diverged."
+    if other_median > limit:
+        return False, f"{other_name.capitalize()} loss diverged."
     return True, LOSS_OK_NOTE
+
+
+def set_cli_try_compile(enabled: bool) -> None:
+    """Let ``trainpilot run --compile`` turn compile on for this process."""
+
+    global _cli_try_compile
+    _cli_try_compile = enabled
+
+
+def compile_payback_steps(
+    prepare_seconds: float,
+    amp_step_seconds: float,
+    compile_step_seconds: float,
+) -> int | None:
+    """How many faster steps it takes to earn back the one-time compile cost."""
+
+    saved = amp_step_seconds - compile_step_seconds
+    if prepare_seconds < 0 or saved <= 0:
+        return None
+    return math.ceil(prepare_seconds / saved)
+
+
+def compile_verdict(
+    amp_step_seconds: float,
+    compile_step_seconds: float,
+    prepare_seconds: float,
+    *,
+    loss_ok: bool,
+) -> str:
+    """Plain-language compile result, compared with mixed precision without compile."""
+
+    if not loss_ok:
+        return "torch.compile ran, but the loss did not stay healthy. It is not a change to keep."
+    speedup = _speedup(amp_step_seconds, compile_step_seconds)
+    if speedup is None or speedup < COMPILE_WORTH_FACTOR:
+        return COMPILE_NOT_WORTH
+    payback = compile_payback_steps(prepare_seconds, amp_step_seconds, compile_step_seconds)
+    if payback is None:
+        return COMPILE_NOT_WORTH
+    steps_word = "step" if payback == 1 else "steps"
+    return (
+        "torch.compile made a typical mixed-precision step faster. "
+        f"The extra prepare time pays for itself after about {payback} {steps_word}."
+    )
 
 
 def select_amp_dtype(device_name: str) -> torch.dtype:
@@ -195,6 +289,14 @@ def select_amp_dtype(device_name: str) -> torch.dtype:
 class _Run:
     measurement: Any
     losses: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class _CompileRun:
+    prepare_seconds: float | None
+    median_step_seconds: float | None
+    losses: tuple[float, ...]
+    note: str | None
 
 
 def _execute(
@@ -254,7 +356,7 @@ def _try_compile(
     seed: int,
     warmup: int,
     steps: int,
-) -> tuple[float | None, float | None, str | None]:
+) -> _CompileRun:
     compile_model, compile_optimizer = _clone_model_and_optimizer(model, optimizer)
     try:
         compiled = torch.compile(compile_model)
@@ -266,7 +368,7 @@ def _try_compile(
             seed=seed,
             warmup=0,
             steps=1,
-            amp=False,
+            amp=True,
         )
         steady = _execute(
             compiled,
@@ -276,11 +378,21 @@ def _try_compile(
             seed=seed,
             warmup=warmup,
             steps=steps,
-            amp=False,
+            amp=True,
         )
     except Exception as exc:
-        return None, None, f"Skipped because torch.compile failed: {exc}"
-    return trigger.measurement.median_step_seconds, steady.measurement.median_step_seconds, None
+        return _CompileRun(
+            None,
+            None,
+            (),
+            f"Skipped because torch.compile failed: {exc}",
+        )
+    return _CompileRun(
+        trigger.measurement.median_step_seconds,
+        steady.measurement.median_step_seconds,
+        steady.losses,
+        None,
+    )
 
 
 def _clone_model_and_optimizer(

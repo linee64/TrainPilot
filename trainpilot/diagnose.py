@@ -25,6 +25,8 @@ class Diagnosis:
     reason: str
     wait_fraction: float | None
     label: str = SHORT_RUN_LABEL
+    loader_num_workers: int | None = None
+    loader_pin_memory: bool | None = None
 
 
 def diagnose(measurement: StepMeasurement) -> Diagnosis:
@@ -39,6 +41,8 @@ def diagnose(measurement: StepMeasurement) -> Diagnosis:
                     "be waiting for data or busy computing."
                 ),
                 wait_fraction=measurement.wait_fraction,
+                loader_num_workers=measurement.loader_num_workers,
+                loader_pin_memory=measurement.loader_pin_memory,
             )
         )
     if measurement.wait_fraction is None:
@@ -47,6 +51,8 @@ def diagnose(measurement: StepMeasurement) -> Diagnosis:
                 verdict=SKIPPED,
                 reason="Skipped because data-wait time was not measured separately.",
                 wait_fraction=None,
+                loader_num_workers=measurement.loader_num_workers,
+                loader_pin_memory=measurement.loader_pin_memory,
             )
         )
     verdict = classify_wait_fraction(measurement.wait_fraction)
@@ -55,6 +61,8 @@ def diagnose(measurement: StepMeasurement) -> Diagnosis:
             verdict=verdict,
             reason=_reason(verdict, measurement.wait_fraction),
             wait_fraction=measurement.wait_fraction,
+            loader_num_workers=measurement.loader_num_workers,
+            loader_pin_memory=measurement.loader_pin_memory,
         )
     )
 

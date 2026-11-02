@@ -46,6 +46,8 @@ class StepMeasurement:
     median_data_wait_seconds: float | None = None
     median_compute_seconds: float | None = None
     wait_fraction: float | None = None
+    loader_num_workers: int | None = None
+    loader_pin_memory: bool | None = None
 
 
 def measure_steps(
@@ -101,6 +103,7 @@ def measure_batches(
 
     _check_window(warmup, steps)
     _begin_memory()
+    loader_num_workers, loader_pin_memory = _loader_settings(batches)
     upcoming = _batch_source(batches, warmup + steps)
 
     for _ in range(warmup):
@@ -124,6 +127,8 @@ def measure_batches(
         steps=steps,
         data_wait_seconds=data_wait_seconds,
         compute_seconds=compute_seconds,
+        loader_num_workers=loader_num_workers,
+        loader_pin_memory=loader_pin_memory,
     )
 
 
@@ -148,6 +153,8 @@ def _finish(
     steps: int,
     data_wait_seconds: list[float] | None = None,
     compute_seconds: list[float] | None = None,
+    loader_num_workers: int | None = None,
+    loader_pin_memory: bool | None = None,
 ) -> StepMeasurement:
     median_step_seconds = float(statistics.median(step_seconds))
     median_data_wait_seconds: float | None = None
@@ -182,7 +189,17 @@ def _finish(
         median_data_wait_seconds=median_data_wait_seconds,
         median_compute_seconds=median_compute_seconds,
         wait_fraction=wait_fraction,
+        loader_num_workers=loader_num_workers,
+        loader_pin_memory=loader_pin_memory,
     )
+
+
+def _loader_settings(batches: Any) -> tuple[int | None, bool | None]:
+    """Read DataLoader knobs if ``batches`` is a torch DataLoader."""
+
+    if isinstance(batches, torch.utils.data.DataLoader):
+        return int(batches.num_workers), bool(batches.pin_memory)
+    return None, None
 
 
 def _wait_fraction(median_data_wait_seconds: float, median_step_seconds: float) -> float:

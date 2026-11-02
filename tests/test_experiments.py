@@ -4,11 +4,15 @@ import torch
 from torch import nn
 
 from trainpilot.experiments import (
+    COMPILE_NOT_WORTH,
+    COMPILE_WORTH_FACTOR,
     LOSS_OK_NOTE,
     SKIPPED_COMPILE_NOT_REQUESTED,
     SKIPPED_NO_GPU,
     assess_losses,
     compare_mixed_precision,
+    compile_payback_steps,
+    compile_verdict,
     select_amp_dtype,
 )
 from trainpilot.experiments import _clone_model_and_optimizer, _collect_batches, _execute
@@ -138,6 +142,44 @@ def test_amp_dtype_is_fp16_even_on_t4() -> None:
 
 def test_compile_is_skipped_unless_requested() -> None:
     assert SKIPPED_COMPILE_NOT_REQUESTED.startswith("Skipped because")
+
+
+def test_compile_is_measured_on_mixed_precision() -> None:
+    import inspect
+
+    from trainpilot.experiments import _try_compile
+
+    source = inspect.getsource(_try_compile)
+    assert "amp=True" in source
+    assert "amp=False" not in source
+
+
+def test_compile_verdict_says_not_worth_when_speedup_is_small() -> None:
+    text = compile_verdict(0.1966, 0.1865, 19.0, loss_ok=True)
+
+    assert text == COMPILE_NOT_WORTH
+    assert COMPILE_WORTH_FACTOR == 1.1
+    assert compile_payback_steps(19.0, 0.1966, 0.1865) == 1882
+
+
+def test_compile_verdict_reports_payback_when_compile_is_faster() -> None:
+    # AMP 96.3 ms, compile 48.15 ms, prepare 19 s -> 19 / 0.04815 ≈ 395 steps.
+    text = compile_verdict(0.0963, 0.04815, 19.0, loss_ok=True)
+
+    assert "pays for itself after about 395 steps" in text
+    assert compile_payback_steps(19.0, 0.0963, 0.04815) == 395
+
+
+def test_compile_loss_nan_is_rejected() -> None:
+    ok, note = assess_losses([1.0, 1.0, 1.0], [1.0, float("nan"), 1.0], other_name="compile")
+    assert ok is False
+    assert note == "Non-finite value in the compile loss."
+    ok, note = assess_losses([1.0, 1.0, 1.0], [20.0, 20.0, 20.0], other_name="compile")
+    assert ok is False
+    assert note == "Compile loss diverged."
+    assert compile_verdict(0.1, 0.04, 5.0, loss_ok=False).startswith(
+        "torch.compile ran, but the loss did not stay healthy"
+    )
 
 
 def test_short_batch_list_is_rejected() -> None:
