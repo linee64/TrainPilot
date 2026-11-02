@@ -67,6 +67,27 @@ def test_waiting_report_does_not_repeat_loader_settings_already_set() -> None:
     assert "Skipped because there is no safe change to paste." in text
 
 
+def test_waiting_loader_advice_is_not_repeated_in_what_we_tried() -> None:
+    diagnosis = Diagnosis(
+        verdict="waiting for data",
+        reason="On this short run, 75.8% of a typical step is spent waiting for the next batch. The GPU is idle while that happens.",
+        wait_fraction=0.758,
+        loader_num_workers=2,
+        loader_pin_memory=True,
+    )
+    text = render_report(diagnosis, _fast_experiment())
+    finding, _, rest = text.partition("## What we tried")
+    tried, _, _ = rest.partition("##")
+
+    assert text.count("two CPU cores") == 1
+    assert "two CPU cores" in finding
+    assert "two CPU cores" not in tried
+    assert "574.2 ms" in tried
+    assert "176.5 ms" in tried
+    assert "Most of the step is still spent waiting for the next batch." in tried
+    assert "Your DataLoader already uses these settings." not in tried
+
+
 def test_waiting_report_suggests_only_the_missing_loader_knob() -> None:
     diagnosis = Diagnosis(
         verdict="waiting for data",
@@ -185,6 +206,10 @@ def test_compile_not_worth_is_plain() -> None:
     assert "not worth the wait" in text
     assert "On the compile run, loss did not diverge" in text
     assert "Skipped because torch.compile was not requested." not in text
+    snippet = code_snippet(_busy_diagnosis(), compiled)
+    assert snippet is not None
+    assert "torch.compile" not in snippet
+    assert snippet.splitlines()[0].startswith("scaler = torch.amp.GradScaler")
 
 
 def test_compile_payback_is_in_the_report() -> None:
@@ -211,6 +236,22 @@ def test_compile_payback_is_in_the_report() -> None:
 
     assert "pays for itself after about 395 steps" in text
     assert "48.2 ms" in text or "48.1 ms" in text
+    snippet = code_snippet(_busy_diagnosis(), compiled)
+    assert snippet is not None
+    first = snippet.splitlines()[0]
+    assert first.startswith("model = torch.compile(model)")
+    assert "pays off after ~395 steps" in first
+    assert "19.0 s" in first
+    assert "GradScaler" in snippet
+    assert snippet.index("torch.compile") < snippet.index("GradScaler")
+
+
+def test_compile_is_absent_from_snippet_when_not_requested() -> None:
+    snippet = code_snippet(_busy_diagnosis(), _fast_experiment())
+
+    assert snippet is not None
+    assert "torch.compile" not in snippet
+    assert _line_count(snippet) == 5
 
 
 def test_empty_report_on_cpu_says_gpu_not_found() -> None:

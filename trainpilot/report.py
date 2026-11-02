@@ -102,20 +102,12 @@ def render_report(
 
 
 def code_snippet(diagnosis: Any | None, experiment: Any | None) -> str | None:
-    """Return 3–5 lines to paste, or None when no change is safe."""
+    """Return a short paste block, or None when no change is safe."""
 
     if diagnosis is not None and getattr(diagnosis, "verdict", None) == "waiting for data":
         return _loader_snippet(diagnosis)
     if _amp_is_safe(experiment):
-        return "\n".join(
-            [
-                'scaler = torch.amp.GradScaler("cuda")',
-                'with torch.autocast(device_type="cuda", dtype=torch.float16):',
-                "    loss = loss_fn(model(inputs), targets)",
-                "scaler.scale(loss).backward()",
-                "scaler.step(optimizer); scaler.update()",
-            ]
-        )
+        return _amp_snippet(experiment)
     return None
 
 
@@ -297,15 +289,38 @@ def _skipped_lines(diagnosis: Any | None, experiment: Any | None) -> list[str]:
 
 
 def _waiting_followup(diagnosis: Any | None) -> str:
+    """AMP numbers live above this line. Do not repeat the Colab/Kaggle loader paragraph here."""
+
     if _loader_already_tuned(diagnosis):
-        return (
-            "Most of the step is still spent waiting for the next batch. "
-            + _LOADER_ALREADY_SET
-        )
+        return "Most of the step is still spent waiting for the next batch."
     return (
         "Most of the step is still spent waiting for the next batch, "
         "so the change to paste is the data loader."
     )
+
+
+def _amp_snippet(experiment: Any) -> str:
+    lines: list[str] = []
+    if _compile_is_worth_pasting(experiment):
+        payback = getattr(experiment, "compile_payback_steps", None)
+        prepare = getattr(experiment, "compile_seconds", None)
+        comment = ""
+        if payback is not None and prepare is not None:
+            comment = (
+                f"  # pays off after ~{payback} steps "
+                f"(prepare time {_format_seconds(prepare)})"
+            )
+        lines.append(f"model = torch.compile(model){comment}")
+    lines.extend(
+        [
+            'scaler = torch.amp.GradScaler("cuda")',
+            'with torch.autocast(device_type="cuda", dtype=torch.float16):',
+            "    loss = loss_fn(model(inputs), targets)",
+            "scaler.scale(loss).backward()",
+            "scaler.step(optimizer); scaler.update()",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _amp_is_safe(experiment: Any | None) -> bool:
@@ -313,6 +328,20 @@ def _amp_is_safe(experiment: Any | None) -> bool:
         return False
     speedup = getattr(experiment, "median_step_speedup", None)
     return bool(getattr(experiment, "loss_ok", False) and speedup is not None and speedup >= 1.1)
+
+
+def _compile_is_worth_pasting(experiment: Any | None) -> bool:
+    """True when compile beat AMP by at least 1.1x and the loss stayed healthy."""
+
+    if experiment is None or getattr(experiment, "skipped_reason", None):
+        return False
+    speedup = getattr(experiment, "compile_speedup", None)
+    return bool(
+        getattr(experiment, "compile_loss_ok", False)
+        and speedup is not None
+        and speedup >= 1.1
+        and getattr(experiment, "compile_median_step_seconds", None) is not None
+    )
 
 
 def _format_ratio(speedup: float) -> str:
