@@ -1,45 +1,50 @@
 # TrainPilot — Testing
 
-## Референсы и ожидаемый результат
-| Пример | Ситуация | Ожидаемый диагноз | Ожидаемая рекомендация |
+## Reference scripts and expected result
+
+| Example | Situation | Expected verdict | Expected recommendation |
 |---|---|---|---|
-| 01 CIFAR CNN | медленная загрузка | GPU ждёт данные | num_workers, pin_memory |
-| 02 TinyStories | FP32 | GPU занят | смешанная точность (FP16) |
-| 03 ResNet-50 | тяжёлая модель | GPU занят | смешанная точность (FP16) |
+| 01 CIFAR CNN | slow loading | waiting for data | num_workers, pin_memory |
+| 02 TinyStories | FP32 | GPU busy | mixed precision (FP16) |
+| 03 ResNet-50 | heavy model | GPU busy | mixed precision (FP16) |
 
-## Таблица результатов (референсы на T4)
-| Пример | Шаг до (мс) | Шаг после (мс) | Ускорение | Диагноз верный? | Loss ок? |
+## Reference results on a T4
+
+| Example | Step before (ms) | Step after (ms) | Speedup | Verdict correct? | Loss OK? |
 |---|---|---|---|---|---|
-| 01 | 11.4 | 8.0 | 1.44 | да | да |
-| 02 | 493.4 | 151.5 | 3.26 | да | да |
-| 03 | 372.0 | 152.0 | 2.45 | да | да |
+| 01 | 11.4 | 8.0 | 1.44 | yes | yes |
+| 02 | 493.4 | 151.5 | 3.26 | yes | yes |
+| 03 | 372.0 | 152.0 | 2.45 | yes | yes |
 
-Короткий прогон на Tesla T4. Диагноз совпал с ожиданием у всех трёх: 01 «ждёт данные», 02 и 03 «GPU занят». Loss нигде не разошёлся, NaN нет.
+Short run on a Tesla T4. The verdict matched the expectation for all three: 01 waiting for data, 02 and 03 GPU busy. Loss did not diverge, no NaN.
 
-01, ячейка 10: 89.4% шага уходит на следующий батч. «Шаг до/после» в строке 01 — это только счёт на GPU, когда батч уже в памяти: 11.4 мс и 8.0 мс. Рекомендация — num_workers и pin_memory.
+01, cell 10: 89.4% of the step is spent on the next batch. "Before/after" in row 01 is GPU compute only, after the batch is already in memory: 11.4 ms and 8.0 ms. Recommendation: num_workers and pin_memory.
 
-02, ячейка 9: FP16 ускорил шаг в 3.26 раза. Рекомендация — смешанная точность.
+02, cell 9: FP16 made the step 3.26× faster. Recommendation: mixed precision.
 
-03, ячейка 9: GPU занят, ожидание было 2.2% в ячейке 4. FP16 ускорил шаг в 2.45 раза. Рекомендация — смешанная точность. «Ускорять почти нечего» пишем только когда короткий тест сам не показал явного ускорения.
+03, cell 9: GPU busy, wait was 2.2% in cell 4. FP16 made the step 2.45× faster. Recommendation: mixed precision. Write "little is left" only when the short test itself showed no clear speedup.
 
-## Реальные прогоны на T4 (v0.1.0)
+## Real scripts on a T4 (v0.1.0)
 
-Пять чужих скриптов, Colab, Tesla T4. Все вердикты верные. Loss не разошёлся, NaN нет.
+Five third-party scripts, Colab, Tesla T4. Every verdict was correct. Loss did not diverge, no NaN.
 
-| Скрипт | Диагноз | Ожидание | Шаг FP32 (мс) | Шаг AMP (мс) | Ускорение | Loss ок? |
+| Script | Verdict | Data wait | FP32 step (ms) | AMP step (ms) | Speedup | Loss OK? |
 |---|---|---|---|---|---|---|
-| CIFAR ResNet-18 | gpu busy | 0.3% | 116.8 | 46.8 | 2.5x | да |
-| DistilBERT IMDB | gpu busy | 0.2% | 310.4 | 96.3 | 3.22x | да |
-| nanoGPT Shakespeare | gpu busy | 0.6% | 183.5 | 58.6 | 3.13x | да |
-| Тяжёлые аугментации, `num_workers=0` | waiting for data | 71.2% | — | — | — | да |
-| Тяжёлые аугментации, `num_workers=2` | waiting for data | 65.0% | — | — | — | да |
-| Скрипт с уже включённым AMP | gpu busy | 0% | 24.5 | 25.5 | ~1.04x | да |
+| CIFAR ResNet-18 | gpu busy | 0.3% | 116.8 | 46.8 | 2.5x | yes |
+| DistilBERT IMDB | gpu busy | 0.2% | 310.4 | 96.3 | 3.22x | yes |
+| nanoGPT Shakespeare | gpu busy | 0.6% | 183.5 | 58.6 | 3.13x | yes |
+| Heavy augmentations, `num_workers=0` | waiting for data | 71.2% | — | — | — | yes |
+| Heavy augmentations, `num_workers=2` | waiting for data | 65.0% | — | — | — | yes |
+| Script already using AMP | gpu busy | 0% | 24.5 | 25.5 | ~1.04x | yes |
 
-Дополнительно, nanoGPT + `torch.compile` на FP32 (v0.1.0 ещё не сравнивал compile с AMP): подготовка 19.0 с, шаг 186.5 мс против FP32 196.6 мс (~1.05x). Вердикта по compile в том прогоне не было.
+Also, nanoGPT + `torch.compile` on FP32 (v0.1.0 still compared compile to FP32): prepare 19.0 s, step 186.5 ms vs FP32 196.6 ms (~1.05x). That run had no compile verdict.
 
-На скрипте с `num_workers=2` v0.1.0 снова советовал `num_workers=2`. После правки, если загрузчик уже стоит на 2 воркерах и `pin_memory`, совет не повторяется: на Colab/Kaggle два ядра CPU, дальше надо облегчать загрузку. На скрипте с уже включённым AMP отчёт написал «Little is left» и сниппет не дал.
+On the `num_workers=2` script, v0.1.0 suggested `num_workers=2` again. After the fix, if the loader already has 2 workers and `pin_memory`, the advice is not repeated: Colab/Kaggle have two CPU cores, so the next step is cheaper loading. On the script that already used AMP, the report said "Little is left" and offered no snippet.
 
-## Ручная проверка замеров
-- [ ] Время шага TrainPilot ≈ ручной `time.time()` с synchronize (±5%)
-- [ ] Повторный запуск даёт похожие цифры (±10%)
-- [x] На CPU библиотека не падает, пишет «GPU не найдена»
+Later Colab numbers (including compile on AMP) are in the README table.
+
+## Manual timing check
+
+- [ ] TrainPilot step time ≈ hand `time.time()` with synchronize (±5%)
+- [ ] A second run gives similar numbers (±10%)
+- [x] On CPU the library does not crash; it writes "GPU not found"

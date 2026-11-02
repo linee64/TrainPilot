@@ -1,84 +1,82 @@
 # TrainPilot — Roadmap (MVP)
 
-Цель: open-source библиотека, которая на коротком прогоне показывает, GPU считает или ждёт,
-проверяет смешанную точность и выдаёт отчёт + готовый кусок кода.
+Goal: an open-source library that, on a short run, says whether the GPU is computing or waiting, tries mixed precision, and writes a report plus a snippet to paste.
 
-Правило: **не переходи к следующему этапу, пока не прошёл чек-лист текущего.**
-Дни — порядок, а не календарь. Быстрее — можно.
+Rule: **do not start the next stage until the current checklist passes.** Days are order, not a calendar. Faster is fine.
 
 ---
 
-## Этап 0. Подготовка
-- [x] Создать репо `trainpilot` на GitHub (MIT license)
-- [x] Структура папок (см. ARCHITECTURE.md)
-- [x] `pyproject.toml`, `pip install -e .` работает
-- [x] Положить 3 референса в `examples/`
-- [x] Аккаунты Colab и Kaggle, проверить что T4 доступна
+## Stage 0. Setup
+- [x] Create the `trainpilot` GitHub repo (MIT license)
+- [x] Folder layout (see `docs/ARCHITECTURE.md`)
+- [x] `pyproject.toml`, `pip install -e .` works
+- [x] Put 3 reference scripts in `examples/`
+- [x] Colab and Kaggle accounts; confirm a T4 is available
 
-**Готово, когда:** `import trainpilot` работает в Colab.
+**Done when:** `import trainpilot` works in Colab.
 
-## Этап 1. Замер шага
-- [x] `measure.py`: время каждого шага с `torch.cuda.synchronize()`
-- [x] Прогрев 10 шагов не считается, мерим следующие 30
-- [x] Примеров в секунду, пиковая память (`torch.cuda.max_memory_allocated`)
-- [x] Медиана, а не среднее (выбросы)
+## Stage 1. Step timing
+- [x] `measure.py`: time each step with `torch.cuda.synchronize()`
+- [x] Drop 10 warmup steps; measure the next 30
+- [x] Examples per second, peak memory (`torch.cuda.max_memory_allocated`)
+- [x] Median, not the mean (outliers)
 
-**Проверка:** запустить на ResNet-50, сравнить время шага с ручным замером через `time.time()`. Разница < 5%.
+**Check:** run on ResNet-50, compare the step time with a hand timer using `time.time()`. Difference < 5%.
 
-## Этап 2. Диагноз
-- [x] Мерить отдельно: время ожидания данных (до получения батча) и время вычислений
-- [x] Доля ожидания = ожидание / весь шаг
-- [x] Правило: ожидание > 30% → «GPU ждёт данные», иначе «GPU занят»
-- [x] Текст причины простыми словами
+## Stage 2. Diagnosis
+- [x] Time data wait (until the batch arrives) separately from compute
+- [x] Wait share = wait / whole step
+- [x] Rule: wait > 30% → waiting for data, otherwise GPU busy
+- [x] Reason in plain language
 
-**Проверка:** CIFAR → «ждёт данные», ResNet → «занят». Оба верно.
+**Check:** CIFAR → waiting for data, ResNet → busy. Both correct.
 
-## Этап 3. Эксперимент со смешанной точностью
-- [x] Копия модели и оптимизатора, исходное обучение не трогаем
-- [x] Тот же seed, те же батчи
-- [x] `torch.autocast` FP16 + `GradScaler` (на T4 только FP16, не BF16)
-- [x] Сравнить медианное время шага: базовый vs AMP
-- [x] Проверка «обучение не сломалось»: loss не разошёлся, NaN нет
-- [x] (Опционально) `torch.compile`: время компиляции мерить отдельно
+## Stage 3. Mixed-precision experiment
+- [x] Copy of the model and optimizer; the original training is not touched
+- [x] Same seed, same batches
+- [x] `torch.autocast` FP16 + `GradScaler` (FP16 only on a T4, never BF16)
+- [x] Compare median step time: baseline vs AMP
+- [x] "Training did not break": loss did not diverge, no NaN
+- [x] (Optional) `torch.compile`: measure compile time separately
 
-**Проверка:** TinyStories — AMP заметно быстрее, loss нормальный.
+**Check:** TinyStories — AMP is clearly faster, loss is healthy.
 
-## Этап 4. Отчёт и CLI
-- [x] `report.py`: отчёт на одну страницу (markdown + в консоль)
-- [x] Блок «готовый код»: 3–5 строк, которые человек вставляет сам
-- [x] Пометка «цифры по короткому тесту, полный прогон — оценка»
-- [x] Строка «пропущено, потому что…» для того, что не проверяли
-- [x] `cli.py`: команда `trainpilot run train.py`
+## Stage 4. Report and CLI
+- [x] `report.py`: one-page report (markdown + console)
+- [x] "Code to paste": a few lines the user inserts themselves
+- [x] Label: numbers are from a short test; a full run is an estimate
+- [x] "Skipped because …" for anything that was not checked
+- [x] `cli.py`: `trainpilot run train.py`
 
-**Проверка:** отчёт понятен человеку, который не знает профайлеры.
+**Check:** the report is readable without profiler jargon.
 
-## Этап 5. Colab и Kaggle
-- [x] Ноутбук: запуск одной ячейкой
-- [x] Прогнать все 3 примера на T4
-- [x] Записать реальные цифры в таблицу (см. TESTING.md)
+## Stage 5. Colab and Kaggle
+- [x] Notebook: one-cell run
+- [x] Run all 3 examples on a T4
+- [x] Record real numbers in the table (see `docs/TESTING.md`)
 
-**Проверка:** пройдена. 01 «ждёт данные», правка загрузки. 02 и 03 «GPU занят»; на T4 FP16 ускорил шаг, loss в порядке. «Ускорять почти нечего» — только если короткий тест сам не показал явного ускорения.
+**Check:** passed. 01 waiting for data, fix the loader. 02 and 03 GPU busy; on a T4, FP16 made the step faster and the loss stayed OK. Say "little is left" only when the short test itself showed no clear speedup.
 
-## Этап 6. README
-- [x] Первая строка: что делает и чем отличается от профайлеров
-- [x] Картинка/таблица «было / стало» с реальными цифрами
-- [x] Быстрый старт (2 команды)
-- [x] Ограничения первой версии
+## Stage 6. README
+- [x] First line: what it does and how it differs from a profiler
+- [x] Chart/table with real before/after numbers
+- [x] Quick start
+- [x] v0.1 limits
 
-**Проверка:** пройдена. README открывается смыслом и отличием от профайлера, таблица — цифры T4 из TESTING.md, старт — две команды, ограничения первой версии на месте.
+**Check:** passed. README opens with the idea and the difference from a profiler. The table uses T4 numbers from `docs/TESTING.md`.
 
-## Этап 7. Релиз
-- [x] Починить баги
-- [x] Тег `v0.1.0`, релиз на GitHub
-- [x] (Опционально) публикация на PyPI
-- [x] Пост в LinkedIn / X
+## Stage 7. Release
+- [x] Fix bugs
+- [x] Tag `v0.1.0`, GitHub release
+- [x] (Optional) publish to PyPI
+- [x] Post on LinkedIn / X
 
-**Проверка:** пройдена. Версия 0.1.0. Пост в LinkedIn и публикация на PyPI отмечены по словам автора.
+**Check:** passed. Version 0.1.0.
 
 ---
 
-## Не делаем в первой версии
-- Несколько GPU, распределённое обучение
-- Автоматическая правка чужого скрипта
-- Подбор batch size, оптимизация памяти
-- Обещание конкретного процента ускорения
+## Not in v0.1
+- Multi-GPU / distributed training
+- Automatically patching someone else's script
+- Batch-size search, memory tuning
+- Promising a specific speedup percentage

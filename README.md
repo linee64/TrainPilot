@@ -145,7 +145,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-GPU tests skip when CUDA is not available. Keep the public API (`measure_batches`, `diagnose`, `compare_mixed_precision`, `render_report`) unless a change is required. Do not edit the reference scripts in `examples/`.
+GPU tests skip when CUDA is not available. Keep the public API (`measure_batches`, `diagnose`, `compare_mixed_precision`, `render_report`) unless a change is required. Do not edit the reference scripts in `examples/`. Layout and expected T4 results: `docs/ARCHITECTURE.md`, `docs/TESTING.md`.
 
 ## License
 

@@ -10,9 +10,9 @@ checks that training did not break, and writes a one-page report plus a code sni
 Goal of v0.1: honest diagnosis and an honest measurement. Not "speed up any model".
 
 ## Docs to follow
-- `ROADMAP.md` — stages and checklists. Work stage by stage; do not start the next stage until the current one passes its check.
-- `ARCHITECTURE.md` — module layout and API.
-- `TESTING.md` — expected results on the 3 reference examples.
+- `docs/ROADMAP.md` — stages and checklists. Work stage by stage; do not start the next stage until the current one passes its check.
+- `docs/ARCHITECTURE.md` — module layout and API.
+- `docs/TESTING.md` — expected results on the 3 reference examples.
 
 ## Repo layout
 - `trainpilot/measure.py` — step timing, data-wait time, memory
@@ -21,6 +21,8 @@ Goal of v0.1: honest diagnosis and an honest measurement. Not "speed up any mode
 - `trainpilot/report.py` — report + code snippet
 - `trainpilot/cli.py` — `trainpilot run train.py`
 - `examples/` — 3 reference training scripts (do not "optimize" them; they are slow on purpose)
+- `docs/` — architecture, roadmap, testing notes, T4 chart
+- `AGENTS.md` — this file; stays at the repo root
 
 ## Measurement rules (never break these)
 - Always call `torch.cuda.synchronize()` before reading a timer on GPU.
@@ -51,7 +53,7 @@ Goal of v0.1: honest diagnosis and an honest measurement. Not "speed up any mode
 ## How to verify a change
 1. `pip install -e .`
 2. Run `pytest` (must pass, including on CPU).
-3. On a GPU, run TrainPilot on all 3 examples and compare with `TESTING.md`:
+3. On a GPU, run TrainPilot on all 3 examples and compare with `docs/TESTING.md`:
    - 01 CIFAR → "waiting for data"
    - 02 TinyStories → AMP gives a clear speedup, loss OK
    - 03 ResNet-50 → "GPU busy". On T4, FP16 still gave a clear speedup and the loss stayed OK, so recommend mixed precision. Say "little to gain" only when that short test itself shows no clear speedup.
